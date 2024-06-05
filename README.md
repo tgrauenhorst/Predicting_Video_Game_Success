@@ -1,6 +1,6 @@
 ![pulsar_star_wp](https://gssc.esa.int/navipedia/images/a/a9/Example.jpg)
 
-# Project Titel
+# Predicting Video Game Success
 
 ### Project Overview
 Objective: Describe the main goal of the project, which is to use machine learning techniques to predict a specific outcome based on the given dataset.
