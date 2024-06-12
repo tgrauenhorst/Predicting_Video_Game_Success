@@ -135,7 +135,7 @@ def text_cleaner(sentence):
     ## counter
     global call_count 
     call_count += 1
-    if call_count%500 == 0:
+    if call_count%1000 == 0:
         print(call_count)
     if sentence is None:
         doc_str = ""
@@ -255,7 +255,9 @@ class NLPAnalyzer():
         results = []
 
         # Standardize numeric features
-        columns_to_scale = ['published_store', 'full_price', 'languages', 'voiceovers']
+        columns_to_scale = [column for column in self.train_data.columns if len(self.train_data[column].unique()) > 2 and 
+                            np.issubdtype(self.train_data[column].dtype, np.number)]
+        print(f"Scaling the following columns for analyses: {columns_to_scale}")
         scaler = StandardScaler()
         self.train_data[columns_to_scale] = scaler.fit_transform(self.train_data[columns_to_scale])
         self.test_data[columns_to_scale] = scaler.transform(self.test_data[columns_to_scale])
@@ -403,14 +405,39 @@ class NLPAnalyzer():
         plt.savefig(f'../../plots/fig_{self.target_var}_R2{self.naming_suffix}.png')
     
         # Plot t-values for non-text variables as horizontal bar plot
-        plt.figure(figsize=(14, 7))
+        # Sorting
         non_text_t_values = self.model_sm.tvalues[1:len(X_train_non_text.columns) + 1]
-        non_text_feature_names = X_train_non_text.columns  # Get non-text feature names
-        plt.barh(non_text_feature_names, non_text_t_values, color='skyblue')
-    
+        non_text_feature_names = X_train_non_text.columns
+        df_t_values = pd.DataFrame({
+            'feature': non_text_feature_names,
+            't_value': non_text_t_values
+        })
+        df_t_values_sorted = df_t_values.sort_values(by='t_value', ascending=False)
+        non_text_t_values = df_t_values_sorted['t_value']
+        non_text_feature_names = df_t_values_sorted['feature']
+
+        plt.figure(figsize=(14, 7))
+        plt.barh(non_text_feature_names, non_text_t_values, color="cornflowerblue")
         plt.xlabel('T-values')
         plt.ylabel('Non-text Features')
         plt.title(f'T-values for Non-text Variables (predicting {self.target_name})')
+
+        max_y=len(non_text_feature_names)
+        min_x= min(non_text_t_values)-0.5
+        max_x= max(non_text_t_values)+0.5
+        l1=plt.axvline(1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        l2=plt.axvline(-1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        plt.axvline(0, color="cornflowerblue", alpha=0.5)
+        f1=plt.gca().fill_between(x=[-1.96, 1.96], y1=-1, y2=max_y, color="red", alpha=0.075)
+        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", alpha=0.075)
+        f3=plt.gca().fill_between(x=[1.96, max_x], y1=-1, y2=max_y, color="green", alpha=0.075)
+        
+        legend = plt.gca().get_legend()
+        if legend:
+            legend.remove()        
+        ax2=plt.gca().twinx()
+        ax2.legend(handles=[f2], loc=1)
+
         plt.tight_layout()
         plt.savefig(f'../../plots/fig_{self.target_var}_Tvalues{self.naming_suffix}.png')
     
@@ -536,11 +563,27 @@ class NLPAnalyzer():
         plt.figure(figsize=(12, 8))
                
         # Make barh plot
-        plt.barh(words, t_values, color='green', label=self.target_var.title(), alpha=0.5)
+        w1=plt.barh(words, t_values, color="cornflowerblue", label=self.target_name, alpha=0.5)
         plt.xlabel('T-values')
         plt.ylabel('Words')
         plt.title(f'T-values of most influential words in models for {self.target_name}')
-        plt.legend()
+        
+        max_y=len(words)
+        min_x= min(t_values)-0.5
+        max_x= max(t_values)+0.5
+        l1=plt.axvline(1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        l2=plt.axvline(-1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        plt.axvline(0, color="cornflowerblue", alpha=0.5)
+        f1=plt.gca().fill_between(x=[-1.96, 1.96], y1=-1, y2=max_y, color="red", alpha=0.075)
+        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", alpha=0.075)
+        f3=plt.gca().fill_between(x=[1.96, max_x], y1=-1, y2=max_y, color="green", alpha=0.075)
+        
+        legend = plt.gca().get_legend()
+        if legend:
+            legend.remove()
+        ax2=plt.gca().twinx()
+        ax2.legend(handles=[f2], loc=1)
+        
         plt.tight_layout()
         plt.savefig(f'../../plots/fig_word_t-values_{self.target_var}{self.naming_suffix}.png')
 
@@ -588,14 +631,29 @@ class NLPAnalyzer():
         t_values_2 = [entry[1] for entry in top_2]
         
         # Make barh plot
-        plt.barh(words_1, t_values_1, color='green', label=target_1, alpha=0.5)
-        plt.barh(words_2, t_values_2, color='blue', label=target_2, alpha=0.5)
+        w1=plt.barh(words_1, t_values_1, color='orange', label=target_1, alpha=0.5)
+        w2=plt.barh(words_2, t_values_2, color="cornflowerblue", label=target_2, alpha=0.5)
         plt.xlabel('T-values')
         plt.ylabel('Words')
-        plt.title('T-values of most influential words in models for {target_1} and {target_2}')
-        plt.legend()
+        plt.title(f'T-values of most influential words in models for {target_1} and {target_2}')
+
+        unique_values = list(set(words_1) | set(words_2))
+        max_y=len(unique_values)
+        min_x= min(min(t_values_1), max(t_values_1))-0.5
+        max_x= max(max(t_values_1), max(t_values_1))+0.5
+        l1=plt.axvline(1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        l2=plt.axvline(-1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        plt.axvline(0, color="cornflowerblue", alpha=0.5)
+        f1=plt.gca().fill_between(x=[-1.96, 1.96], y1=-1, y2=max_y, color="red", alpha=0.075)
+        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", alpha=0.075)
+        f3=plt.gca().fill_between(x=[1.96, max_x], y1=-1, y2=max_y, color="green", alpha=0.075)
+        plt.gca().legend(handles=[w1, w2], loc=2, title="Models")
+        ax2=plt.gca().twinx()
+        ax2.legend(handles=[f2], loc=1)
+        
         plt.tight_layout()
         plt.savefig(f'../../plots/fig_word_t-values_{target_1.replace(" ", "")}_{target_2.replace(" ", "")}{self.naming_suffix}.png')
 
         return top_1, top_2
+
 
