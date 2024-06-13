@@ -238,6 +238,92 @@ class NLPAnalyzer():
         print("*"*50, "\n", "Data preparation done", "\n", "*"*50)
 
     
+## Class for analyses
+
+class NLPAnalyzer():
+    """A class used for the analyses including NLP.
+
+        Attributes:
+
+            df (Dataframe):
+                The DataFrame to be used for analyses.
+            target_var (string):
+                The name of the target column.
+            max_feature_list (list):
+                A list of interger values to be used as maximum number of features for vectorization.
+            test_size (float):
+                The fraction of the Dataframe to be used as the test sample.
+            tfidf (bool):
+                A Boolean that is True if TF-IDF vectorization should be used instead of BOW/Count vectorization.
+            var_dict (dictionary):
+                A dictionary of potential targets with column names (keys) and column descriptions (values).
+                These columns are excluded from analyses and only the target used in target_var is included as target.
+            train_data (Dataframe):
+                Data to be used as train features. Generated when runnning :meth: "analyze".
+            test_data (Dataframe):
+                Data to be used as test features. Generated when runnning :meth: "analyze".
+            train_target (Dataframe):
+                Data to be used as train target. Generated when runnning :meth: "analyze".
+            test_target (Dataframe):
+                Data to be used as test target. Generated when runnning :meth: "analyze".
+            vectorizer (instance of vectorizer class from sklearn):
+                Vectorizer used. Can be CountVectorizer or TfidfVectorizer. Generated when runnning :meth: analyze.
+            model_sm (instance of statsmodels.api.OLS):
+                OLS regression used for extraction of t-values. Generated when runnning :meth: analyze.
+        
+        Methods:
+    
+            analyze():
+                Conduct analyses, print figures for Adjusted R-squared and T-values of non-NLP features. Return table of results.
+  
+            extract_words(max_features=50):
+                Conduct OLS regression for max_features and return list of words showing significant effects and corresponding t-values.
+                
+            plot_words_multi(word_list_1, word_list_2, target_1, target_2, top_number=25):
+                Plot words of two analyses extracted with :meth: extract_words.
+                       
+        """
+    
+    def __init__(self, df, target_var, target_name, max_feature_list=[0, 2000, 2500, 3000, 3500, 4000], test_size=0.25, tfidf=False, naming_suffix=""):
+        """Construct all the necessary attributes for the NLPAnalyzer object.
+
+        Args:
+            df (Dataframe):
+                The DataFrame to be used for analyses.
+            target_var (string):
+                The target column.
+            target_name (string):
+                The name of the target column (used for plotting).
+            max_feature_list (list):
+                A list of interger values to be used as maximum number of features for vectorization.
+            test_size (float):
+                The fraction of the Dataframe to be used as the test sample.
+            tfidf (bool):
+                A Boolean that is True if TF-IDF vectorization should be used instead of BOW/Count vectorization.
+            naming_suffix (string):
+                A string that is added to plots for simple comparison of different models for a specific target.
+                
+        """
+        
+        self.df = df.copy()
+        self.target_var = target_var
+        self.target_name = target_name
+        self.test_size = test_size
+        self.max_feature_list = max_feature_list
+        self.tfidf = tfidf
+        self.naming_suffix = naming_suffix
+        
+        print("*"*50, "\n", "Initialization - Target:", self.target_var, "\n", "*"*50)
+
+        ## delete missings
+        self.df = self.df.dropna(axis=0, how="any")
+
+        ## Reset index
+        self.df.reset_index()
+        
+        print("*"*50, "\n", "Data preparation done", "\n", "*"*50)
+
+    
     def analyze(self):
         """Conduct analyses, print figures for Adjusted R-squared and T-values of non-NLP features. Return list of results.     
             
@@ -254,13 +340,22 @@ class NLPAnalyzer():
         # List for results
         results = []
 
-        # Standardize numeric features
-        columns_to_scale = [column for column in self.train_data.columns if len(self.train_data[column].unique()) > 2 and 
-                            np.issubdtype(self.train_data[column].dtype, np.number)]
+        # Define the columns_to_scale list using a list comprehension
+        columns_to_scale = [
+        col for col in self.train_data.columns
+        if self.train_data[col].nunique() > 2 and pd.api.types.is_numeric_dtype(self.train_data[col])
+        ]
+
+        # Print the columns to be scaled for debugging purposes
         print(f"Scaling the following columns for analyses: {columns_to_scale}")
-        scaler = StandardScaler()
-        self.train_data[columns_to_scale] = scaler.fit_transform(self.train_data[columns_to_scale])
-        self.test_data[columns_to_scale] = scaler.transform(self.test_data[columns_to_scale])
+
+        # Check if there are columns to scale
+        if columns_to_scale:
+            scaler = StandardScaler()
+            self.train_data[columns_to_scale] = scaler.fit_transform(self.train_data[columns_to_scale])
+            self.test_data[columns_to_scale] = scaler.transform(self.test_data[columns_to_scale])
+        else:
+            print("No columns to scale.")
 
         
         # Loop for different values of max_features
@@ -375,7 +470,7 @@ class NLPAnalyzer():
 
                 
                 # RandomForestRegressor
-                model_rf = RandomForestRegressor(n_estimators=200).fit(X_train, self.train_target)
+                model_rf = RandomForestRegressor(n_estimators=200, n_jobs=-1).fit(X_train, self.train_target)
                 r2_rf = r2_score(self.test_target, model_rf.predict(X_test))
                 adj_r2_rf = 1 - (1-r2_rf)*(len(self.test_target)-1)/(len(self.test_target)-X_test.shape[1]-1)
                 results.append(('RandomForest', max_feat, adj_r2_rf))
@@ -425,11 +520,11 @@ class NLPAnalyzer():
         max_y=len(non_text_feature_names)
         min_x= min(non_text_t_values)-0.5
         max_x= max(non_text_t_values)+0.5
-        l1=plt.axvline(1.96, color="green", label="Significant with p<0.05", alpha=0.75)
-        l2=plt.axvline(-1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        l1=plt.axvline(1.96, color="green", alpha=0.75)
+        l2=plt.axvline(-1.96, color="green", alpha=0.75)
         plt.axvline(0, color="cornflowerblue", alpha=0.5)
         f1=plt.gca().fill_between(x=[-1.96, 1.96], y1=-1, y2=max_y, color="red", alpha=0.075)
-        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", alpha=0.075)
+        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", label="Significant with p<0.05", alpha=0.075)
         f3=plt.gca().fill_between(x=[1.96, max_x], y1=-1, y2=max_y, color="green", alpha=0.075)
         
         legend = plt.gca().get_legend()
@@ -571,11 +666,11 @@ class NLPAnalyzer():
         max_y=len(words)
         min_x= min(t_values)-0.5
         max_x= max(t_values)+0.5
-        l1=plt.axvline(1.96, color="green", label="Significant with p<0.05", alpha=0.75)
-        l2=plt.axvline(-1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        l1=plt.axvline(1.96, color="green", alpha=0.75)
+        l2=plt.axvline(-1.96, color="green", alpha=0.75)
         plt.axvline(0, color="cornflowerblue", alpha=0.5)
         f1=plt.gca().fill_between(x=[-1.96, 1.96], y1=-1, y2=max_y, color="red", alpha=0.075)
-        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", alpha=0.075)
+        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", label="Significant with p<0.05", alpha=0.075)
         f3=plt.gca().fill_between(x=[1.96, max_x], y1=-1, y2=max_y, color="green", alpha=0.075)
         
         legend = plt.gca().get_legend()
@@ -641,11 +736,11 @@ class NLPAnalyzer():
         max_y=len(unique_values)
         min_x= min(min(t_values_1), max(t_values_1))-0.5
         max_x= max(max(t_values_1), max(t_values_1))+0.5
-        l1=plt.axvline(1.96, color="green", label="Significant with p<0.05", alpha=0.75)
-        l2=plt.axvline(-1.96, color="green", label="Significant with p<0.05", alpha=0.75)
+        l1=plt.axvline(1.96, color="green", alpha=0.75)
+        l2=plt.axvline(-1.96, color="green", alpha=0.75)
         plt.axvline(0, color="cornflowerblue", alpha=0.5)
         f1=plt.gca().fill_between(x=[-1.96, 1.96], y1=-1, y2=max_y, color="red", alpha=0.075)
-        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", alpha=0.075)
+        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", label="Significant with p<0.05", alpha=0.075)
         f3=plt.gca().fill_between(x=[1.96, max_x], y1=-1, y2=max_y, color="green", alpha=0.075)
         plt.gca().legend(handles=[w1, w2], loc=2, title="Models")
         ax2=plt.gca().twinx()
@@ -655,5 +750,6 @@ class NLPAnalyzer():
         plt.savefig(f'../../plots/fig_word_t-values_{target_1.replace(" ", "")}_{target_2.replace(" ", "")}{self.naming_suffix}.png')
 
         return top_1, top_2
+
 
 
