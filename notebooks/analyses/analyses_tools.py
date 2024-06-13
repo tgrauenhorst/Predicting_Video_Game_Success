@@ -140,6 +140,9 @@ def text_cleaner(sentence):
     if sentence is None:
         doc_str = ""
     else:
+        ## delete html tags
+        sentence = re.sub("<.*?>", "", sentence)
+
         ## tokenize and delete pronouns, stopwords and punctuation
         doc = nlp(sentence)
         clean_doc = [token.lemma_.lower() for token in doc if (token.pos_ !="PRON") and (token.lemma_ not in stopWords) and (token.lemma_ not in punctuations)]
