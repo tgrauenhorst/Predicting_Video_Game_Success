@@ -737,8 +737,8 @@ class NLPAnalyzer():
 
         unique_values = list(set(words_1) | set(words_2))
         max_y=len(unique_values)
-        min_x= min(min(t_values_1), max(t_values_1))-0.5
-        max_x= max(max(t_values_1), max(t_values_1))+0.5
+        min_x= min(min(t_values_1), max(t_values_2))-0.5
+        max_x= max(max(t_values_1), max(t_values_2))+0.5
         l1=plt.axvline(1.96, color="green", alpha=0.75)
         l2=plt.axvline(-1.96, color="green", alpha=0.75)
         plt.axvline(0, color="cornflowerblue", alpha=0.5)
