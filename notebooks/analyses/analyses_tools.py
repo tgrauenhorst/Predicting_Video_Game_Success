@@ -449,6 +449,7 @@ class NLPAnalyzer():
             legend.remove()        
         ax2=plt.gca().twinx()
         ax2.legend(handles=[f2], loc=1)
+        ax2.set_yticks([])
 
         plt.tight_layout()
         plt.savefig(f'../../plots/fig_{self.target_var}_Tvalues{self.naming_suffix}.png')
@@ -595,6 +596,7 @@ class NLPAnalyzer():
             legend.remove()
         ax2=plt.gca().twinx()
         ax2.legend(handles=[f2], loc=1)
+        ax2.set_yticks([])
         
         plt.tight_layout()
         plt.savefig(f'../../plots/fig_word_t-values_{self.target_var}{self.naming_suffix}.png')
@@ -663,7 +665,8 @@ class NLPAnalyzer():
         plt.gca().legend(handles=[w1, w2], loc=2, title="Models")
         ax2=plt.gca().twinx()
         ax2.legend(handles=[f2], loc=1)
-        
+        ax2.set_yticks([])
+
         plt.tight_layout()
         plt.savefig(f'../../plots/fig_word_t-values_{target_1.replace(" ", "")}_{target_2.replace(" ", "")}{self.naming_suffix}.png')
 
