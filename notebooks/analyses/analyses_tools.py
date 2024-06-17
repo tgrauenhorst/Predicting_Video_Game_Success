@@ -8,6 +8,8 @@ import pandas as pd
 import numpy as np
 import datetime as dt
 import matplotlib.pyplot as plt
+from collections import Counter
+from itertools import chain
 
 ## Imports for NLP
 import nltk, re, spacy, string
@@ -39,10 +41,58 @@ def oh_encoder(df, column):
     one_hot_df = pd.DataFrame(0, index=df.index, columns=all_categories)
     for i, categories in enumerate(df[column]):
             one_hot_df.loc[i, categories] = 1
+   
+    # Prepend "{column}_" to each column name in one_hot_df
+    one_hot_df.columns = [f"{column}_{col}" for col in one_hot_df.columns]
+    
+    # Join one_hot_df back to df and drop the original column
     df = df.drop(columns=[column]).join(one_hot_df)
         
     return df
 
+
+## Function to filter entries in detected_technologies for engines used
+
+def filter_engine_entries(text):
+    """Extract engine information from detected_technologies"""
+    # only keep "Engine" entries for detected_technologies:
+    if isinstance(text, str):
+        entries = text.replace('; ', ', ').replace(" ", "").split(',')
+        filtered_entries = [entry.replace("Engine.", "") for entry in entries if entry.startswith('Engine.')]
+        cleaned_text = '; '.join(filtered_entries)    
+        if cleaned_text == "":
+            return "Unknown"
+        else:
+            return cleaned_text
+    else:
+        return "Unknown"
+
+
+## Function for counting genres
+
+def count_genres(genres):
+    """Count number of genres."""
+    if pd.isna(genres) or genres == '':
+        return 0
+    return len(genres.split(','))
+
+
+## Function for extracting word count and average length
+
+def calculate_description_metrics(description):
+    """Split the description into words and extract word count and average length."""
+    if pd.isna(description):
+        return 0, 0.0 
+    ## Split description
+    words = re.findall(r'\b\w+\b', description)
+    # Calculate word count
+    word_count = len(words)
+    # Calculate average word length
+    if word_count > 0:
+        avg_word_length = sum(len(word) for word in words) / word_count
+    else:
+        avg_word_length = 0
+    return word_count, avg_word_length
 
 
 ## Function for data preparation
@@ -57,7 +107,17 @@ def data_preparation(df):
         df (Dataframe): Prepared dataframe
         
     """
-
+   
+    def count_entries(text):
+        """Helper function to count entries in lists"""
+        entries = text.split('; ')
+        return Counter(entries)
+    def replace_entries(text, other_entries):
+        """Helper function to replace entries in lists"""
+        entries = text.split('; ')
+        replaced_entries = list(set(['Misc' if entry in other_entries else entry for entry in entries]))
+        return '; '.join(replaced_entries)
+    
     df = df.copy()
     
     ###############################    
@@ -65,18 +125,22 @@ def data_preparation(df):
     ###############################
     
     ## drop columns not used in analyses
-    df.drop(['sid', 'store_url', 'store_promo_url', 'published_meta', 'published_stsp', 'published_hltb',
-           'published_igdb', 'image', 'current_price', 'discount', 
-           'gfq_url', 'gfq_difficulty_comment', 'gfq_rating_comment', 'gfq_length_comment',
-           'hltb_url', 'meta_url', 'igdb_url'], axis=1, inplace=True)
-    
+    df.drop(['sid', 'store_promo_url', 'published_meta', 'published_stsp', 'published_hltb',
+             'published_igdb', 'image', 'current_price', 'discount', 'publisher', 'developer',
+             'gfq_url', 'gfq_difficulty_comment', 'gfq_rating_comment', 'gfq_length_comment',
+             'hltb_url', 'meta_url', 'igdb_url', 'Unnamed: 0', 'game', 'steam_url', 'release', 
+             'positive_reviews', 'negative_reviews', "review_percentage", 'primary_genre', 'store_genres', 
+             'store_asset_mod_time', 
+             'players_right_now', '24_hour_peak', 'all_time_peak', 'all_time_peak_date'], 
+            axis=1, inplace=True)
+
     ## publish date as timedelta
     df["published_store"] = pd.to_datetime(df["published_store"]) - pd.Timestamp(1997, 1, 1)
     df["published_store"] = df["published_store"].apply(lambda value: value.days)
      
     ## missing data 1: If language or voiceover is missing, set to "One_unknown"
-    df.loc[df["languages"].isna(), "languages"] = "One_unknown"
-    df.loc[df["voiceovers"].isna(), "voiceovers"] = "One_unknown"
+    df.loc[df["languages"].isna(), "languages"] = "Unknown"
+    df.loc[df["voiceovers"].isna(), "voiceovers"] = "Unknown"
 
     ## delete games without English as language:
     count_no_en = 0
@@ -96,18 +160,41 @@ def data_preparation(df):
             df.drop(col, axis=1, inplace=True) 
     
     ## One-Hot-Encoding
+
+    ## Filter entries in detected_technologies
+    df['engine'] = df['detected_technologies'].apply(filter_engine_entries)
+    df = df.drop('detected_technologies', axis=1)
+
+    ## Extract word count and average length from description
+    df['description_count'], df['description_length'] = zip(*df['description'].apply(calculate_description_metrics))
     
-    ## Genres
+    ## Count number of genres
+    df['genres_count'] = df['genres'].apply(count_genres)
+       
+    ## Splitting mutliple entries
     ## split strings in genre and platform columns
     df['genres'] = df['genres'].apply(lambda x: x.split(','))
     df['platforms'] = df['platforms'].apply(lambda x: x.split(','))
+    
+    # Count occurences of entries in "engine"
+    entry_counts = df['engine'].apply(count_entries).sum()
+    # Identify entries with less than 10 occurences
+    other_entries = {entry for entry, count in entry_counts.items() if count < 50}
+    # Replace entries
+    df['engine'] = df['engine'].apply(lambda lst: replace_entries(lst, other_entries))
+    df['engine'] = df['engine'].apply(lambda x: x.replace('; ', ', ').replace(" ", "").split(','))
+    
     ## replace genres
     df['genres'] = df['genres'].apply(lambda genres: list(set(['Indie' if genre == 'Инди' else genre for genre in genres])))
     df['genres'] = df['genres'].apply(lambda genres: list(set(['Adventure' if genre == 'Приключенческие игры' else genre for genre in genres])))
     
     ## One-Hot Encoding
+    df["genres"] = df["genres"].fillna("Unknown")
+    df["platforms"] = df["platforms"].fillna("Unknown")
+    df["engine"] = df["engine"].fillna("Unknown")
     df = oh_encoder(df, "genres")
     df = oh_encoder(df, "platforms")
+    df = oh_encoder(df, "engine")
     
     ## Rename columns including spaces
     df.rename(columns={'Game Development':'Game_Development',
@@ -116,6 +203,13 @@ def data_preparation(df):
                       'Early Access':'Early_Access',
                       'Sexual Content':'Sexual_Content'}, inplace=True)
 
+    
+    ## Generate indicators for multi-player games from categories:
+    df['Multiplayer'] = df['categories'].apply(
+        lambda x: 1 if x and ('Multi-player' in x or 'Massively_Multiplayer' in x) else 0
+        )
+    df = df.drop('categories', axis=1)
+    
     return df
 
 
@@ -140,9 +234,9 @@ def text_cleaner(sentence):
     if sentence is None:
         doc_str = ""
     else:
-        ## delete html tags
-        sentence = re.sub("<.*?>", "", sentence)
-
+        ## OPTIONAL: delete html tags (tags can be excluded if one wants to limit analyses to ignore this information):
+        # sentence = re.sub("<.*?>", "", sentence)
+        
         ## tokenize and delete pronouns, stopwords and punctuation
         doc = nlp(sentence)
         clean_doc = [token.lemma_.lower() for token in doc if (token.pos_ !="PRON") and (token.lemma_ not in stopWords) and (token.lemma_ not in punctuations)]
@@ -671,5 +765,377 @@ class NLPAnalyzer():
         plt.savefig(f'../../plots/fig_word_t-values_{target_1.replace(" ", "")}_{target_2.replace(" ", "")}{self.naming_suffix}.png')
 
         return top_1, top_2
+
+
+
+## New child class of NLPAnalyzer using an external vocabulary
+
+class CustomNLPAnalyzer(NLPAnalyzer):
+    """Changes to parent class: takes custom word dictionary for vocabulary of vectorizers."""
+    def __init__(self, df, target_var, target_name, max_feature_list=[0, 2000, 2500, 3000, 3500, 4000], test_size=0.25, tfidf=False, naming_suffix="", custom_vocabulary=None):
+        super().__init__(df, target_var, target_name, max_feature_list, test_size, tfidf, naming_suffix)
+        self.custom_vocabulary = custom_vocabulary
+    
+    def analyze(self):
+        # Train-test split
+        self.train_data, self.test_data, self.train_target, self.test_target = train_test_split(
+            self.df.drop([self.target_var], axis=1), self.df[self.target_var], test_size=self.test_size, random_state=42)
+        
+        # List for results
+        results = []
+
+        # Define the columns_to_scale list using a list comprehension
+        columns_to_scale = [
+            col for col in self.train_data.columns
+            if self.train_data[col].nunique() > 2 and pd.api.types.is_numeric_dtype(self.train_data[col])
+        ]
+
+        # Print the columns to be scaled for debugging purposes
+        print(f"Scaling the following columns for analyses: {columns_to_scale}")
+
+        # Check if there are columns to scale
+        if columns_to_scale:
+            scaler = StandardScaler()
+            self.train_data[columns_to_scale] = scaler.fit_transform(self.train_data[columns_to_scale])
+            self.test_data[columns_to_scale] = scaler.transform(self.test_data[columns_to_scale])
+        else:
+            print("No columns to scale.")
+
+        # Loop for different values of max_features
+        for max_feat in self.max_feature_list:
+            try:
+                if max_feat > 0:
+                    if self.custom_vocabulary:
+                        if self.tfidf:
+                            self.vectorizer = TfidfVectorizer(
+                                stop_words='english',
+                                max_df=0.9,
+                                min_df=10,
+                                max_features=max_feat,
+                                vocabulary=self.custom_vocabulary
+                            )
+                            print("*"*50, "\n", "Using TF-IDF Vectorizer with custom vocabulary", "\n", "*"*50)
+                        else:
+                            self.vectorizer = CountVectorizer(
+                                stop_words='english',
+                                max_df=0.9,
+                                min_df=10,
+                                max_features=max_feat,
+                                vocabulary=self.custom_vocabulary
+                            )
+                            print("*"*50, "\n", "Using BOW Vectorizer with custom vocabulary", "\n", "*"*50)
+                   
+                    elif self.tfidf:
+                        self.vectorizer = TfidfVectorizer(
+                            stop_words='english',
+                            max_df=0.9,
+                            min_df=10,
+                            max_features=max_feat
+                        )
+                        print("*"*50, "\n", "Using TF-IDF Vectorizer", "\n", "*"*50)
+                    else:
+                        self.vectorizer = CountVectorizer(
+                            stop_words='english',
+                            max_df=0.9,
+                            min_df=10,
+                            max_features=max_feat
+                        )
+                        print("*"*50, "\n", "Using BOW Vectorizer", "\n", "*"*50)
+                    
+                    # Fit and transformation
+                    X_train_text = self.vectorizer.fit_transform(self.train_data['description_clean_nonum'])
+                    X_test_text = self.vectorizer.transform(self.test_data['description_clean_nonum'])
+                    
+                    # Convert text features into dataframe
+                    X_train_text_df = pd.DataFrame(X_train_text.toarray(), columns=self.vectorizer.get_feature_names_out(), index=self.train_data.index)
+                    X_test_text_df = pd.DataFrame(X_test_text.toarray(), columns=self.vectorizer.get_feature_names_out(), index=self.test_data.index)
+                else:
+                    # When max_feat is 0, use only non-text features
+                    X_train_text_df = pd.DataFrame()
+                    X_test_text_df = pd.DataFrame()
+               
+                # Keep non-text features
+                X_train_non_text = self.train_data.drop('description_clean_nonum', axis=1)
+                X_test_non_text = self.test_data.drop('description_clean_nonum', axis=1)
+                
+                # Make sure all non-text features are numeric
+                X_train_non_text = X_train_non_text.apply(pd.to_numeric, errors='coerce')
+                X_test_non_text = X_test_non_text.apply(pd.to_numeric, errors='coerce')
+                
+                # Concatenate dataframes
+                X_train = pd.concat([X_train_non_text, X_train_text_df], axis=1)
+                X_test = pd.concat([X_test_non_text, X_test_text_df], axis=1)
+                
+                # Make sure all features are numeric
+                X_train = X_train.apply(pd.to_numeric, errors='coerce')
+                X_test = X_test.apply(pd.to_numeric, errors='coerce')
+       
+                print("*"*50, "\n", "NLP:", max_feat, "words - Vectorization done", "\n", "*"*50)
+                
+                # OLS with statsmodels
+                self.model_sm = sm.OLS(self.train_target, sm.add_constant(X_train)).fit()
+                adj_r2_sm = self.model_sm.rsquared_adj
+                if max_feat == 0:
+                    display(self.model_sm.summary())
+                print("*"*50, "\n", "R-squared for Statsmodels OLS (train data):", self.model_sm.rsquared)
+                print("*"*50, "\n", "Adjusted R-squared for Statsmodels OLS (train data):", adj_r2_sm)
+                
+                # Add constant to X_test for prediction
+                X_test_const = sm.add_constant(X_test, has_constant='add')
+                r2_sm_test = r2_score(self.test_target, self.model_sm.predict(X_test_const))
+                adj_r2_sm_test = 1 - ( ( (1-r2_sm_test) * (len(self.test_target) - 1) ) / ( (len(self.test_target) - X_test_const.shape[1] - 1) ) )
+                print("*"*50, "\n", "R-squared for Statsmodels OLS (test data):", r2_sm_test)    
+                print("*"*50, "\n", "Adjusted R-squared for Statsmodels OLS (test data):", adj_r2_sm_test)                          
+                results.append(('OLS', max_feat, adj_r2_sm_test))
+              
+                print("*"*50, "\n", "NLP:", max_feat, "words - OLS SM done", "\n", "*"*50)
+                
+                # OLS with sklearn
+                model_lr = LinearRegression(fit_intercept=True).fit(X_train, self.train_target)
+                r2_lr = r2_score(self.test_target, model_lr.predict(X_test))
+                adj_r2_lr = 1 - (1-r2_lr)*(len(self.test_target)-1)/(len(self.test_target)-X_test.shape[1]-1)
+                results.append(('LinearRegression', max_feat, adj_r2_lr))
+                print(r2_lr, adj_r2_lr)
+                print("*"*50, "\n", "NLP:", max_feat, "words - OLS SK done", "\n", "*"*50)
+                
+                # Lasso
+                model_lasso = Lasso(fit_intercept=True, alpha=1e4).fit(X_train, self.train_target)
+                r2_lasso = r2_score(self.test_target, model_lasso.predict(X_test))
+                adj_r2_lasso = 1 - (1-r2_lasso)*(len(self.test_target)-1)/(len(self.test_target)-X_test.shape[1]-1)
+                results.append(('Lasso', max_feat, adj_r2_lasso))
+                print(r2_lasso, adj_r2_lasso)
+                print("*"*50, "\n", "NLP:", max_feat, "words - Lasso done", "\n", "*"*50)
+                
+                # Ridge
+                model_ridge = Ridge(fit_intercept=True, alpha=1e4).fit(X_train, self.train_target)
+                r2_ridge = r2_score(self.test_target, model_ridge.predict(X_test))
+                adj_r2_ridge = 1 - (1-r2_ridge)*(len(self.test_target)-1)/(len(self.test_target)-X_test.shape[1]-1)
+                results.append(('Ridge', max_feat, adj_r2_ridge))
+                print(r2_ridge, adj_r2_ridge)
+                print("*"*50, "\n", "NLP:", max_feat, "words - Ridge done", "\n", "*"*50)
+                
+                # ElasticNet
+                model_ela = ElasticNet(fit_intercept=True, alpha=1).fit(X_train, self.train_target)
+                r2_ela = r2_score(self.test_target, model_ela.predict(X_test))
+                adj_r2_ela = 1 - (1-r2_ela)*(len(self.test_target)-1)/(len(self.test_target)-X_test.shape[1]-1)
+                results.append(('ElasticNet', max_feat, adj_r2_ela))
+                print(r2_ela, adj_r2_ela)
+                print("*"*50, "\n", "NLP:", max_feat, "words - ElasticNet done", "\n", "*"*50)
+                
+                # RandomForestRegressor
+                model_rf = RandomForestRegressor(n_estimators=200, n_jobs=-1).fit(X_train, self.train_target)
+                r2_rf = r2_score(self.test_target, model_rf.predict(X_test))
+                adj_r2_rf = 1 - (1-r2_rf)*(len(self.test_target)-1)/(len(self.test_target)-X_test.shape[1]-1)
+                results.append(('RandomForest', max_feat, adj_r2_rf))
+                print(r2_rf, adj_r2_rf)
+                print("*"*50, "\n", "NLP:", max_feat, "words - RandomForestRegressor done", "\n", "*"*50)
+            
+            except ValueError as e:
+                print(f"Error with max_features={max_feat}: {e}")
+                continue
+
+        # Convert results into dataframe
+        self.results_df = pd.DataFrame(results, columns=['Model', 'Max_Features', 'Adjusted_R2'])
+        self.results_df.loc[self.results_df["Adjusted_R2"]<0,"Adjusted_R2"] = 0.0
+        
+        # Plot adjusted R-squared for different max features
+        plt.figure(figsize=(14, 7))
+        for model in self.results_df['Model'].unique()[1:]:
+            subset = self.results_df[self.results_df['Model'] == model]
+            plt.plot(subset['Max_Features'], subset['Adjusted_R2'], label=model, alpha=0.5, drawstyle="steps-mid")
+    
+        plt.xlabel('Max NLP Features')
+        plt.ylabel('Adjusted R-squared')
+        plt.title(f'Adjusted R-squared for Different Models (predicting {self.target_name})')
+        plt.xticks(self.max_feature_list)
+        plt.legend()
+        plt.savefig(f'../../plots/fig_{self.target_var}_R2{self.naming_suffix}.png')
+    
+        # Plot t-values for non-text variables as horizontal bar plot
+        # Sorting
+        non_text_t_values = self.model_sm.tvalues[1:len(X_train_non_text.columns) + 1]
+        non_text_feature_names = X_train_non_text.columns
+        df_t_values = pd.DataFrame({
+            'feature': non_text_feature_names,
+            't_value': non_text_t_values
+        })
+        df_t_values_sorted = df_t_values.sort_values(by='t_value', ascending=False)
+        non_text_t_values = df_t_values_sorted['t_value']
+        non_text_feature_names = df_t_values_sorted['feature']
+
+        plt.figure(figsize=(18, 8))
+        max_y=len(non_text_feature_names)
+        min_x= min(non_text_t_values)-0.5
+        max_x= max(non_text_t_values)+0.5
+        l1=plt.axvline(1.96, color="green", alpha=0.25)
+        l2=plt.axvline(-1.96, color="green", alpha=0.25)
+        plt.axvline(0, color="cornflowerblue", alpha=0.5)
+        f1=plt.gca().fill_between(x=[-1.96, 1.96], y1=-1, y2=max_y, color="red", alpha=0.075)
+        f2=plt.gca().fill_between(x=[min_x,-1.96], y1=-1, y2=max_y, color="green", label="Significant with p<0.05", alpha=0.075)
+        f3=plt.gca().fill_between(x=[1.96, max_x], y1=-1, y2=max_y, color="green", alpha=0.075)
+
+        plt.barh(non_text_feature_names, non_text_t_values, color="cornflowerblue")
+        plt.xlabel('T-values')
+        plt.ylabel('Non-text Features')
+        plt.title(f'T-values for Non-text Variables (predicting {self.target_name})')
+
+        legend = plt.gca().get_legend()
+        if legend:
+            legend.remove()        
+        ax2=plt.gca().twinx()
+        ax2.legend(handles=[f2], loc=1)
+        ax2.set_yticks([])
+
+        plt.tight_layout()
+        plt.savefig(f'../../plots/fig_{self.target_var}_Tvalues{self.naming_suffix}.png')
+    
+        return self.results_df
+
+
+
+
+## New child class of NLPAnalyzer for extraction of influential words identified by Random Forest Feature Importance
+
+class RFFINLPAnalyzer(NLPAnalyzer):
+    """Changes to parent class: only plots and extracts feature importances of words."""
+    
+    def analyze(self):
+        """Run vectorization and Random Forest analyses to prepare for feature extraction."""
+        # Train-test split
+        self.train_data, self.test_data, self.train_target, self.test_target = train_test_split(
+            self.df.drop([self.target_var], axis=1), self.df[self.target_var], test_size=self.test_size, random_state=42)
+
+        # Define the columns_to_scale list using a list comprehension
+        columns_to_scale = [
+            col for col in self.train_data.columns
+            if self.train_data[col].nunique() > 2 and pd.api.types.is_numeric_dtype(self.train_data[col])
+        ]
+
+        # Print the columns to be scaled for debugging purposes
+        print(f"Scaling the following columns for analyses: {columns_to_scale}")
+
+        # Check if there are columns to scale
+        if columns_to_scale:
+            scaler = StandardScaler()
+            self.train_data[columns_to_scale] = scaler.fit_transform(self.train_data[columns_to_scale])
+            self.test_data[columns_to_scale] = scaler.transform(self.test_data[columns_to_scale])
+        else:
+            print("No columns to scale.")
+
+        # Dictionary to store feature importances
+        self.feature_importances_ = {}
+
+        # Loop for different values of max_features
+        for max_feat in self.max_feature_list:
+            try:
+                if max_feat > 0:
+                    if self.tfidf:
+                        self.vectorizer = TfidfVectorizer(
+                            stop_words='english',
+                            max_df=0.9,
+                            min_df=10,
+                            max_features=max_feat
+                        )
+                        print("*"*50, "\n", "Using TF-IDF Vectorizer", "\n", "*"*50)
+                    else:
+                        self.vectorizer = CountVectorizer(
+                            stop_words='english',
+                            max_df=0.9,
+                            min_df=10,
+                            max_features=max_feat
+                        )
+                        print("*"*50, "\n", "Using BOW Vectorizer", "\n", "*"*50)
+                    
+                    # Fit and transformation
+                    X_train_text = self.vectorizer.fit_transform(self.train_data['description_clean_nonum'])
+                    X_test_text = self.vectorizer.transform(self.test_data['description_clean_nonum'])
+                    
+                    # Convert text features into dataframe
+                    X_train_text_df = pd.DataFrame(X_train_text.toarray(), columns=self.vectorizer.get_feature_names_out(), index=self.train_data.index)
+                    X_test_text_df = pd.DataFrame(X_test_text.toarray(), columns=self.vectorizer.get_feature_names_out(), index=self.test_data.index)
+                else:
+                    # When max_feat is 0, use only non-text features
+                    X_train_text_df = pd.DataFrame()
+                    X_test_text_df = pd.DataFrame()
+               
+                # Keep non-text features
+                X_train_non_text = self.train_data.drop('description_clean_nonum', axis=1)
+                X_test_non_text = self.test_data.drop('description_clean_nonum', axis=1)
+                
+                # Make sure all non-text features are numeric
+                X_train_non_text = X_train_non_text.apply(pd.to_numeric, errors='coerce')
+                X_test_non_text = X_test_non_text.apply(pd.to_numeric, errors='coerce')
+                
+                # Concatenate dataframes
+                X_train = pd.concat([X_train_non_text, X_train_text_df], axis=1)
+                X_test = pd.concat([X_test_non_text, X_test_text_df], axis=1)
+                
+                # Make sure all features are numeric
+                X_train = X_train.apply(pd.to_numeric, errors='coerce')
+                X_test = X_test.apply(pd.to_numeric, errors='coerce')
+       
+                print("*"*50, "\n", "NLP:", max_feat, "words - Vectorization done", "\n", "*"*50)
+
+                # RandomForestRegressor
+                model_rf = RandomForestRegressor(n_estimators=200, n_jobs=-1).fit(X_train, self.train_target)
+                print("*"*50, "\n", "NLP:", max_feat, "words - RandomForestRegressor done", "\n", "*"*50)
+
+                # Store feature importances
+                feature_importances = model_rf.feature_importances_
+                for i, col in enumerate(X_train.columns):
+                    if col in self.feature_importances_:
+                        self.feature_importances_[col].append(feature_importances[i])
+                    else:
+                        self.feature_importances_[col] = [feature_importances[i]]
+            
+            except ValueError as e:
+                print(f"Error with max_features={max_feat}: {e}")
+                continue
+        
+        # Average feature importances
+        self.avg_feature_importances_ = {k: sum(v)/len(v) for k, v in self.feature_importances_.items()}
+
+        return self
+
+    def get_feature_importances(self):
+        """Extract feature importance of most important 25 features."""
+        # Sort feature importances
+        sorted_features = sorted(self.avg_feature_importances_.items(), key=lambda x: x[1], reverse=True)[:25]
+        return sorted_features
+
+    def get_feature_importance_words(self, max_words=25):
+        """Extract feature importances of a number (max_words) of words."""
+        # Extract feature importances only for word features
+        word_features = self.vectorizer.get_feature_names_out(max_words)
+        word_importances = {word: self.avg_feature_importances_[word] for word in word_features if word in self.avg_feature_importances_}
+        # Sort by importance
+        sorted_word_importances = sorted(word_importances.items(), key=lambda x: x[1], reverse=True)[:max_words]
+        return sorted_word_importances
+        
+    def plot_feature_importances(self, max_words=25):
+        """Plot feature importances of all features and of max_words words."""
+        sorted_features = self.get_feature_importances()
+        words, importances = zip(*sorted_features)
+        plt.figure(figsize=(10, 8))
+        plt.barh(words, importances, color='skyblue')
+        plt.xlabel('Feature Importance')
+        plt.title('Top 25 Feature Importances')
+        plt.gca().invert_yaxis()
+        plt.tight_layout()
+        plt.savefig(f'../../plots/fig_{self.target_var}_RFFI_ALL.png')
+
+        sorted_words = self.get_feature_importance_words(max_words)
+        words, importances = zip(*sorted_words)
+        plt.figure(figsize=(10, 8))
+        plt.barh(words, importances, color='skyblue')
+        plt.xlabel('Feature Importance')
+        plt.title('Top 25 Feature Importances')
+        plt.gca().invert_yaxis()
+        plt.tight_layout()
+        plt.savefig(f'../../plots/fig_{self.target_var}_RFFI_{max_words}WORDS.png')
+        
+        return sorted_features, sorted_words
+
+
 
 
