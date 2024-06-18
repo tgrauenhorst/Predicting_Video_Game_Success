@@ -1,3 +1,18 @@
+def SetDatetimeCols(dataframe):
+    
+    import pandas as pd
+    datetime_cols = ['release',
+                     'published_store',
+                     'published_meta',
+                     'published_stsp',
+                      'published_hltb',
+                      'published_igdb',
+                      'all_time_peak_date']
+    
+    for col in datetime_cols:
+        if col in dataframe.columns:
+            dataframe[col] = pd.to_datetime(dataframe[col])
+
 def URLMerge(df1, df1_url_column: str, df2, df2_url_column: str, how='inner'):
     '''
     Merge two DataFrames based on URL columns.
