@@ -42,7 +42,7 @@ def StringCompare(str1: str, str2: str, thratio: float=None):
     """
     from difflib import SequenceMatcher
 
-    if ratio == None:
+    if thratio == None:
         return SequenceMatcher(None, str1, str2).ratio()
     else:
         return SequenceMatcher(None, str1, str2).ratio() >= thratio
