@@ -25,14 +25,14 @@ def URLMerge(df1, df1_url_column: str, df2, df2_url_column: str, how='inner'):
     
     return pd.merge(df1_copy, df2_copy, on=merge_col, how=how)
 
-def StringCompare(str1: str, str2: str, ratio: float=None):
+def StringCompare(str1: str, str2: str, thratio: float=None):
     """
     Calculates the similarity ratio between two strings.
 
     Parameters:
     str1 (str): The first string to compare.
     str2 (str): The second string to compare.
-    ratio (float, optional): The minimum similarity ratio required for the strings to be considered similar.
+    thratio (float, optional): The similarity ratio threshold required for the strings to be considered similar.
                                 If None, the similarity ratio is returned without comparison to the specified ratio.
 
     Returns:
@@ -45,4 +45,4 @@ def StringCompare(str1: str, str2: str, ratio: float=None):
     if ratio == None:
         return SequenceMatcher(None, str1, str2).ratio()
     else:
-        return SequenceMatcher(None, str1, str2).ratio() >= ratio
+        return SequenceMatcher(None, str1, str2).ratio() >= thratio
