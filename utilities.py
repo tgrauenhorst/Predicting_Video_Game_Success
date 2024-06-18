@@ -1,17 +1,29 @@
 def SetDatetimeCols(dataframe):
+    """
+    Converts specified columns in a dataframe to datetime format.
     
+    Args:
+        dataframe (pandas.DataFrame): The input dataframe.
+        
+    Returns:
+        pandas.DataFrame: The dataframe with specified columns converted to datetime format.
+    """
     import pandas as pd
+    dataframe = dataframe.copy()
+    
     datetime_cols = ['release',
                      'published_store',
                      'published_meta',
                      'published_stsp',
-                      'published_hltb',
-                      'published_igdb',
-                      'all_time_peak_date']
+                     'published_hltb',
+                     'published_igdb',
+                     'all_time_peak_date']
     
     for col in datetime_cols:
         if col in dataframe.columns:
             dataframe[col] = pd.to_datetime(dataframe[col])
+
+    return dataframe
 
 def URLMerge(df1, df1_url_column: str, df2, df2_url_column: str, how='inner'):
     '''
