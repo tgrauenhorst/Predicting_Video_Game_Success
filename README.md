@@ -1,6 +1,6 @@
 ![pulsar_star_wp](https://gssc.esa.int/navipedia/images/a/a9/Example.jpg)
 
-# Predicting Video Game Success
+# Project Titel
 
 ### Project Overview
 Objective: Describe the main goal of the project, which is to use machine learning techniques to predict a specific outcome based on the given dataset.
@@ -59,7 +59,11 @@ Once the setup is complete, you can use the provided functions, such as `ann_pre
 
 ## Dataset
 
-Descibe where you got the Data from. Did you get it from different sources? Provide Download links only if publicly available. 
+The source of the data used is the following repository:
+steamdb by leinstay, URL:
+https://github.com/leinstay/steamdb
+
+
 
 ## Attribute Information
 
